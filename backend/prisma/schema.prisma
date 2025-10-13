@@ -1,0 +1,216 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String?
+  password  String
+  role      Role     @default(USER)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Subscription
+  subscription   Subscription?
+  usageTracking  UsageTracking[]
+  
+  // Team relationships
+  teamMemberships TeamMember[]
+  ownedTeams     Team[]       @relation("TeamOwner")
+  
+  // Workflows and executions
+  workflows      Workflow[]
+  executions     WorkflowExecution[]
+  
+  // API Keys
+  apiKeys        ApiKey[]
+  
+  // GitHub integration
+  githubToken    String?
+  githubUsername String?
+
+  @@map("users")
+}
+
+model Team {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  owner   User   @relation("TeamOwner", fields: [ownerId], references: [id])
+  ownerId String
+
+  members     TeamMember[]
+  workflows   Workflow[]
+  subscription Subscription?
+
+  @@map("teams")
+}
+
+model TeamMember {
+  id     String @id @default(cuid())
+  role   TeamRole @default(MEMBER)
+  
+  user   User   @relation(fields: [userId], references: [id])
+  userId String
+  
+  team   Team   @relation(fields: [teamId], references: [id])
+  teamId String
+
+  createdAt DateTime @default(now())
+
+  @@unique([userId, teamId])
+  @@map("team_members")
+}
+
+model Subscription {
+  id        String   @id @default(cuid())
+  plan      Plan     @default(FREE)
+  status    SubscriptionStatus @default(ACTIVE)
+  
+  stripeCustomerId       String?
+  stripeSubscriptionId   String?
+  stripePriceId         String?
+  
+  currentPeriodStart DateTime?
+  currentPeriodEnd   DateTime?
+  
+  // Usage limits
+  monthlyExecutions     Int @default(0)
+  maxMonthlyExecutions  Int @default(100)
+  
+  user   User?   @relation(fields: [userId], references: [id])
+  userId String? @unique
+  
+  team   Team?   @relation(fields: [teamId], references: [id])
+  teamId String? @unique
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("subscriptions")
+}
+
+model UsageTracking {
+  id        String   @id @default(cuid())
+  
+  user      User     @relation(fields: [userId], references: [id])
+  userId    String
+  
+  action    String   // "workflow_execution", "ai_generation", etc.
+  tokens    Int?     // AI tokens used
+  cost      Float?   // Cost in cents
+  metadata  Json?    // Additional tracking data
+  
+  createdAt DateTime @default(now())
+
+  @@map("usage_tracking")
+}
+
+model Workflow {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  
+  // Workflow definition
+  steps       Json     // Array of workflow steps
+  triggers    Json     // Trigger conditions
+  
+  isActive    Boolean  @default(true)
+  isPublic    Boolean  @default(false)
+  
+  user        User?    @relation(fields: [userId], references: [id])
+  userId      String?
+  
+  team        Team?    @relation(fields: [teamId], references: [id])
+  teamId      String?
+  
+  executions  WorkflowExecution[]
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("workflows")
+}
+
+model WorkflowExecution {
+  id         String            @id @default(cuid())
+  status     ExecutionStatus   @default(PENDING)
+  
+  workflow   Workflow @relation(fields: [workflowId], references: [id])
+  workflowId String
+  
+  user       User     @relation(fields: [userId], references: [id])
+  userId     String
+  
+  // Execution data
+  input      Json?    // Input parameters
+  output     Json?    // Generated output
+  logs       Json[]   // Execution logs
+  error      String?  // Error message if failed
+  
+  // Metrics
+  tokensUsed Int?
+  timeTaken  Int?     // Milliseconds
+  
+  startedAt  DateTime @default(now())
+  completedAt DateTime?
+
+  @@map("workflow_executions")
+}
+
+model ApiKey {
+  id        String   @id @default(cuid())
+  name      String
+  key       String   @unique
+  
+  user      User     @relation(fields: [userId], references: [id])
+  userId    String
+  
+  lastUsed  DateTime?
+  isActive  Boolean  @default(true)
+  
+  createdAt DateTime @default(now())
+
+  @@map("api_keys")
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+
+enum TeamRole {
+  MEMBER
+  ADMIN
+  OWNER
+}
+
+enum Plan {
+  FREE
+  PRO
+  ENTERPRISE
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  CANCELED
+  PAST_DUE
+  INCOMPLETE
+}
+
+enum ExecutionStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+  CANCELED
+}
